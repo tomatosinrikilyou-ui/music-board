@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>NEXUS PRO | FINAL COMMANDER</title>
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
+    <style>
+        :root {
+            --accent: #00d2ff; --bg-deep: #050507; --bg-card: #0e0e12; --bg-side: #15151a;
+            --text-main: #ffffff; --text-sub: #a1a1aa; --border: 1px solid rgba(255,255,255,0.1);
+        }
+        body.theme-kawaii { --accent: #ff85a1; --bg-deep: #fff0f3; --bg-card: #ffffff; --bg-side: #ffe5ec; --text-main: #594157; --border: 1px solid #ffb3c1; }
+        body.theme-military { --accent: #ff9f0a; --bg-deep: #1b1e17; --bg-card: #252a20; --bg-side: #2d3328; --text-main: #d4d7c5; --border: 1px solid #4a543f; }
+
+        * { box-sizing: border-box; font-family: "Hiragino Sans", sans-serif; }
+        body { margin: 0; background: var(--bg-deep); color: var(--text-main); height: 100vh; display: flex; overflow: hidden; }
+
+        /* ナビゲーション */
+        .main-bar { width: 90px; background: #000; border-right: var(--border); display: flex; flex-direction: column; align-items: center; gap: 15px; padding: 20px 0; z-index: 5000; }
+        .nav-btn { width: 70px; height: 70px; background: var(--bg-side); border: var(--border); border-radius: 12px; color: var(--text-sub); font-size: 10px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+        .nav-btn.active { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 15px rgba(0,210,255,0.2); }
+
+        /* サイドパネル */
+        .sub-palette { width: 280px; background: var(--bg-side); border-right: var(--border); padding: 20px; display: none; flex-direction: column; gap: 15px; z-index: 4000; overflow-y: auto; }
+        .sub-palette.active { display: flex; }
+        .p-section { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .p-label { font-size: 10px; color: var(--accent); font-weight: 900; border-left: 3px solid var(--accent); padding-left: 8px; }
+
+        /* ツールボタン */
+        .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .grid-btn { background: #000; border: 1px solid #333; color: #fff; padding: 10px 5px; font-size: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .grid-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+        /* ビューポート & 付箋 */
+        .viewport { flex-grow: 1; position: relative; background: #000; }
+        canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+        #can-tmp { pointer-events: none; z-index: 5; }
+        #node-container { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+        .node { pointer-events: auto; position: absolute; min-width: 150px; background: rgba(255,255,255,0.1); border-left: 5px solid var(--accent); padding: 10px; backdrop-filter: blur(10px); cursor: move; color: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-size: 13px; }
+        .node-ctrl { position: absolute; top: -25px; left: 0; display: flex; gap: 5px; }
+
+        /* メンバーリスト */
+        .user-item { display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; margin-bottom: 5px; border: 1px solid rgba(255,255,255,0.05); }
+        .voice-dot { width: 8px; height: 8px; border-radius: 50%; background: #333; margin-left: auto; }
+        .voice-dot.active { background: #32d74b; box-shadow: 0 0 8px #32d74b; }
+
+        /* ステータスHUD */
+        .phase-center { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: var(--bg-card); padding: 6px; border-radius: 50px; border: var(--border); z-index: 7000; }
+        .phase-btn { background: transparent; border: none; color: var(--text-sub); padding: 5px 20px; font-size: 11px; font-weight: 900; cursor: pointer; border-radius: 50px; }
+        .phase-btn.active { background: var(--accent); color: #000; }
+        #mic-status { position: fixed; top: 0; right: 20px; padding: 4px 15px; background: #ff3b30; font-size: 9px; font-weight: 900; color: #fff; z-index: 8000; border-radius: 0 0 5px 5px; }
+        #mic-status.live { background: #32d74b; }
+
+        #text-ghost { position: absolute; border: 1px dashed var(--accent); color: #fff; background: transparent; outline: none; z-index: 100; display: none; padding: 2px; font-size: 16px; }
+    </style>
+</head>
+<body class="theme-cyber">
+
+<div id="mic-status">MIC: OFF</div>
+
+<div class="phase-center">
+    <button class="phase-btn active" onclick="setTheme('cyber', this)">サイバー</button>
+    <button class="phase-btn" onclick="setTheme('kawaii', this)">かわいい</button>
+    <button class="phase-btn" onclick="setTheme('military', this)">軍隊</button>
+</div>
+
+<nav class="main-bar">
+    <div style="font-size:11px; font-weight:900; color:var(--accent); margin-bottom:10px;">NEXUS</div>
+    <button class="nav-btn active" id="nav-paint" onclick="setTask('paint')">お絵描き</button>
+    <button class="nav-btn" id="nav-board" onclick="setTask('board')">ボード</button>
+    <button class="nav-btn" id="nav-share" onclick="setTask('share')">画面共有</button>
+    <button class="nav-btn" id="nav-nodes" onclick="setTask('nodes')">メンバー</button>
+    <div style="flex-grow:1;"></div>
+    <button class="nav-btn" id="mic-btn" onclick="toggleMic()">マイク</button>
+</nav>
+
+<aside id="pal-paint" class="sub-palette active">
+    <div class="p-section">
+        <span class="p-label">描画ツール</span>
+        <div class="tool-grid">
+            <button class="grid-btn active" onclick="setDrawMode('pen', this)">ペン</button>
+            <button class="grid-btn" onclick="setDrawMode('eraser', this)">消しゴム</button>
+            <button class="grid-btn" onclick="setDrawMode('line', this)">直線</button>
+            <button class="grid-btn" onclick="setDrawMode('rect', this)">四角</button>
+            <button class="grid-btn" onclick="setDrawMode('circle', this)">円</button>
+            <button class="grid-btn" onclick="setDrawMode('text', this)">テキスト</button>
+        </div>
+    </div>
+    <div class="p-section">
+        <span class="p-label">色・太さ設定</span>
+        <input type="color" id="p-color" value="#00d2ff" style="width:100%; height:40px; border:none;">
+        <div style="font-size:10px; margin-top:5px;">太さ: <span id="val-size">5</span></div>
+        <input type="range" id="p-size" min="1" max="100" value="5" oninput="document.getElementById('val-size').innerText=this.value" style="width:100%;">
+    </div>
+    <div class="p-section">
+        <span class="p-label">レイヤー操作</span>
+        <select id="layer-select" style="width:100%; background:#000; color:#fff; padding:8px; border:1px solid #333;">
+            <option value="art">レイヤー 1 (メイン)</option>
+            <option value="img">レイヤー 2 (データ)</option>
+            <option value="bg">レイヤー 3 (背景)</option>
+        </select>
+        <button onclick="clearLayer()" style="background:#ff3b30; color:#fff; border:none; padding:10px; margin-top:5px; border-radius:4px; font-weight:bold; cursor:pointer;">全消去</button>
+    </div>
+</aside>
+
+<aside id="pal-board" class="sub-palette">
+    <div class="p-section">
+        <span class="p-label">ホワイトボード</span>
+        <button class="grid-btn" style="width:100%; margin-bottom:10px;" onclick="addNode()">+ 新規付箋を追加</button>
+        <button class="grid-btn" style="width:100%;" onclick="setDrawMode('laser', this)">レーザーポインター</button>
+    </div>
+    <div class="p-section" style="font-size:10px; opacity:0.6;">
+        付箋はドラッグで移動可能です。
+    </div>
+</aside>
+
+<aside id="pal-share" class="sub-palette">
+    <div class="p-section">
+        <span class="p-label">画面共有操作</span>
+        <button class="grid-btn" style="width:100%; margin-bottom:10px; background:var(--accent); color:#000;" onclick="toggleJoin()">通信リンク確立</button>
+        <button class="grid-btn" style="width:100%;" id="btn-scr" onclick="toggleScr()" disabled>画面共有を開始</button>
+    </div>
+</aside>
+
+<aside id="pal-nodes" class="sub-palette">
+    <div class="p-section">
+        <span class="p-label">接続メンバー</span>
+        <div id="user-list">
+            <div class="user-item">
+                <div style="font-size:10px;">あなた (YOU)</div>
+                <div class="voice-dot" id="vol-local"></div>
+            </div>
+            <div id="remote-users-list"></div>
+        </div>
+    </div>
+</aside>
+
+<main class="viewport" id="vp">
+    <div id="scr-main" style="position:absolute; inset:0; display:none; background:#111;"></div>
+    <canvas id="can-bg"></canvas>
+    <canvas id="can-img"></canvas>
+    <canvas id="can-art"></canvas>
+    <canvas id="can-tmp"></canvas>
+    <div id="node-container"></div>
+    <input type="text" id="text-ghost">
+</main>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, onSnapshot, setDoc, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const FB_CONFIG = { apiKey: "AIzaSyAeOZ38w4uNQbSaMrv8uxRvlkxrHDfyrSM", authDomain: "itumen-69ddb.firebaseapp.com", projectId: "itumen-69ddb", storageBucket: "itumen-69ddb.firebasestorage.app", messagingSenderId: "381294255289", appId: "1:381294255289:web:04637d25dd7cbbde648f68" };
+    const app = initializeApp(FB_CONFIG); const db = getFirestore(app);
+    let client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    let tracks = { audio: null, screen: null };
+    
+    let drawMode = 'pen'; let drawing = false; let startPos = {x:0, y:0};
+    const canvases = { art: document.getElementById('can-art'), bg: document.getElementById('can-bg'), img: document.getElementById('can-img'), tmp: document.getElementById('can-tmp') };
+    const ctxs = Object.fromEntries(Object.entries(canvases).map(([k, v]) => [k, v.getContext('2d')]));
+    const ghost = document.getElementById('text-ghost');
+
+    window.onload = () => {
+        Object.values(canvases).forEach(c => { c.width = c.offsetWidth; c.height = c.offsetHeight; });
+        syncLayers(); syncNodes();
+    };
+
+    // --- UI切り替え ---
+    window.setTask = (t) => {
+        document.querySelectorAll('.nav-btn, .sub-palette').forEach(el => el.classList.remove('active'));
+        document.getElementById(`nav-${t}`).classList.add('active');
+        document.getElementById(`pal-${t}`).classList.add('active');
+        document.getElementById('scr-main').style.display = (t === 'share') ? 'block' : 'none';
+    };
+
+    window.setDrawMode = (mode, btn) => {
+        drawMode = mode;
+        document.querySelectorAll('.grid-btn').forEach(b => b.classList.remove('active'));
+        if(btn) btn.classList.add('active');
+    };
+
+    window.setTheme = (th, btn) => {
+        document.body.className = `theme-${th}`;
+        document.querySelectorAll('.phase-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    };
+
+    // --- マイク操作 ---
+    window.toggleMic = async () => {
+        if (!tracks.audio) {
+            tracks.audio = await AgoraRTC.createMicrophoneAudioTrack();
+            await client.publish(tracks.audio);
+        }
+        const isMuted = tracks.audio.enabled;
+        await tracks.audio.setEnabled(!isMuted);
+        const micBtn = document.getElementById('mic-btn');
+        const micHud = document.getElementById('mic-status');
+        micBtn.classList.toggle('active', !isMuted);
+        micHud.className = !isMuted ? 'live' : '';
+        micHud.innerText = !isMuted ? 'MIC: ON AIR' : 'MIC: OFF';
+    };
+
+    // --- お絵描き描画 ---
+    canvases.art.onmousedown = (e) => {
+        if(drawMode === 'text') {
+            ghost.style.left = e.offsetX + 'px'; ghost.style.top = e.offsetY + 'px';
+            ghost.style.display = 'block'; ghost.focus(); return;
+        }
+        drawing = true; startPos = {x: e.offsetX, y: e.offsetY};
+    };
+
+    canvases.art.onmousemove = (e) => {
+        if (!drawing) return;
+        const currentLayer = document.getElementById('layer-select').value;
+        const ctx = ctxs[currentLayer];
+        const tmpCtx = ctxs.tmp;
+        const color = document.getElementById('p-color').value;
+        const size = document.getElementById('p-size').value;
+
+        tmpCtx.clearRect(0, 0, canvases.tmp.width, canvases.tmp.height);
+        
+        if (['pen', 'eraser', 'laser'].includes(drawMode)) {
+            const activeCtx = (drawMode === 'laser') ? tmpCtx : ctx;
+            activeCtx.beginPath();
+            activeCtx.globalCompositeOperation = (drawMode === 'eraser') ? 'destination-out' : 'source-over';
+            activeCtx.strokeStyle = color; activeCtx.lineWidth = size; activeCtx.lineCap = 'round';
+            if(drawMode === 'laser') { activeCtx.shadowBlur = 15; activeCtx.shadowColor = color; }
+            activeCtx.moveTo(startPos.x, startPos.y); activeCtx.lineTo(e.offsetX, e.offsetY); activeCtx.stroke();
+            if (drawMode !== 'laser') startPos = {x: e.offsetX, y: e.offsetY};
+        } else {
+            tmpCtx.strokeStyle = color; tmpCtx.lineWidth = size;
+            if (drawMode === 'line') { tmpCtx.beginPath(); tmpCtx.moveTo(startPos.x, startPos.y); tmpCtx.lineTo(e.offsetX, e.offsetY); tmpCtx.stroke(); }
+            else if (drawMode === 'rect') { tmpCtx.strokeRect(startPos.x, startPos.y, e.offsetX - startPos.x, e.offsetY - startPos.y); }
+            else if (drawMode === 'circle') { const r = Math.sqrt(Math.pow(e.offsetX - startPos.x, 2) + Math.pow(e.offsetY - startPos.y, 2)); tmpCtx.beginPath(); tmpCtx.arc(startPos.x, startPos.y, r, 0, Math.PI * 2); tmpCtx.stroke(); }
+        }
+    };
+
+    window.onmouseup = (e) => {
+        if (!drawing) return;
+        const currentLayer = document.getElementById('layer-select').value;
+        const ctx = ctxs[currentLayer];
+        if (['line', 'rect', 'circle'].includes(drawMode)) {
+            ctx.strokeStyle = document.getElementById('p-color').value; ctx.lineWidth = document.getElementById('p-size').value;
+            ctx.globalCompositeOperation = 'source-over';
+            if (drawMode === 'line') { ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); }
+            else if (drawMode === 'rect') { ctx.strokeRect(startPos.x, startPos.y, e.offsetX - startPos.x, e.offsetY - startPos.y); }
+            else if (drawMode === 'circle') { const r = Math.sqrt(Math.pow(e.offsetX - startPos.x, 2) + Math.pow(e.offsetY - startPos.y, 2)); ctx.beginPath(); ctx.arc(startPos.x, startPos.y, r, 0, Math.PI * 2); ctx.stroke(); }
+        }
+        ctxs.tmp.clearRect(0, 0, canvases.tmp.width, canvases.tmp.height);
+        if (drawMode !== 'laser') saveLayer(currentLayer);
+        drawing = false;
+    };
+
+    ghost.onkeydown = (e) => {
+        if(e.key === 'Enter') {
+            const ctx = ctxs[document.getElementById('layer-select').value];
+            ctx.fillStyle = document.getElementById('p-color').value; ctx.font = `${document.getElementById('p-size').value * 2}px sans-serif`;
+            ctx.fillText(ghost.value, parseInt(ghost.style.left), parseInt(ghost.style.top) + 20);
+            saveLayer(document.getElementById('layer-select').value);
+            ghost.value = ''; ghost.style.display = 'none';
+        }
+    };
+
+    // --- 付箋 (BOARD) ---
+    window.addNode = async () => {
+        const id = "node_" + Date.now();
+        await setDoc(doc(db, "nodes", id), { id, x: 200, y: 200, text: "入力してください", color: "#00d2ff" });
+    };
+
+    function syncNodes() {
+        onSnapshot(collection(db, "nodes"), snap => {
+            snap.docChanges().forEach(change => {
+                const data = change.doc.data();
+                if (change.type === "removed") { document.getElementById(data.id)?.remove(); return; }
+                let el = document.getElementById(data.id);
+                if (!el) {
+                    el = document.createElement('div'); el.id = data.id; el.className = 'node'; el.contentEditable = true;
+                    el.innerHTML = `<div class="node-ctrl" contenteditable="false"><button onclick="deleteNode('${data.id}')">✕</button></div><div class="node-text">${data.text}</div>`;
+                    el.onmousedown = (e) => {
+                        let ox = e.clientX - el.offsetLeft, oy = e.clientY - el.offsetTop;
+                        const move = (ev) => { el.style.left = (ev.clientX - ox) + 'px'; el.style.top = (ev.clientY - oy) + 'px'; };
+                        const up = () => { updateNode(data.id, { x: parseInt(el.style.left), y: parseInt(el.style.top), text: el.innerText.replace('✕', '') }); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+                        document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+                    };
+                    document.getElementById('node-container').appendChild(el);
+                }
+                el.style.left = data.x + 'px'; el.style.top = data.y + 'px'; el.style.borderLeftColor = data.color;
+            });
+        });
+    }
+
+    window.updateNode = (id, obj) => setDoc(doc(db, "nodes", id), obj, { merge: true });
+    window.deleteNode = (id) => deleteDoc(doc(db, "nodes", id));
+
+    // --- 通信 (SHARE/NODES) ---
+    window.toggleJoin = async () => {
+        await client.join("e53559bce72b4aceb1ca9df7194b2972", "itumen-room", null, null);
+        document.getElementById('btn-scr').disabled = false;
+        client.on("user-published", async (u, type) => { await client.subscribe(u, type); if(type === "video") u.videoTrack.play("scr-main"); updateUserList(); });
+        client.on("user-left", updateUserList); updateUserList();
+    };
+
+    window.toggleScr = async () => {
+        if(!tracks.screen) { tracks.screen = await AgoraRTC.createScreenVideoTrack(); await client.publish(tracks.screen); }
+        else { await client.unpublish(tracks.screen); tracks.screen.close(); tracks.screen = null; }
+    };
+
+    function updateUserList() {
+        const list = document.getElementById('remote-users-list'); list.innerHTML = "";
+        client.remoteUsers.forEach(u => {
+            list.innerHTML += `<div class="user-item"><div>USER_${u.uid.toString().slice(-4)}</div><div class="voice-dot" id="vol-${u.uid}"></div></div>`;
+        });
+    }
+
+    const saveLayer = (l) => setDoc(doc(db, "ops", l), { data: canvases[l].toDataURL('image/webp', 0.2) });
+    const syncLayers = () => ['art','bg','img'].forEach(l => onSnapshot(doc(db, "ops", l), d => { if(d.exists()&&!drawing){ const img=new Image(); img.src=d.data().data; img.onload=()=>ctxs[l].drawImage(img,0,0); }}));
+    window.clearLayer = () => { const l = document.getElementById('layer-select').value; ctxs[l].clearRect(0,0,9999,9999); saveLayer(l); };
+</script>
+</body>
+</html>
+
